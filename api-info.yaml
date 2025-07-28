@@ -1,0 +1,62 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: hello-world-api
+  description: REST API for Spring Boot Hello World application
+  annotations:
+    github.com/project-slug: georgereal/spring-boot-hello-world
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - rest
+    - http
+    - json
+    - spring-boot
+spec:
+  type: openapi
+  lifecycle: production
+  owner: georgereal
+  definition:
+    $text: |
+      openapi: 3.0.0
+      info:
+        title: Hello World API
+        version: 1.0.0
+        description: A simple REST API for Spring Boot Hello World application
+      servers:
+        - url: http://localhost:8080
+          description: Local development server
+        - url: https://georgereal.github.io/spring-boot-hello-world
+          description: Production deployment
+      paths:
+        /:
+          get:
+            summary: Welcome endpoint
+            description: Returns a welcome message
+            responses:
+              '200':
+                description: Welcome message
+                content:
+                  text/plain:
+                    schema:
+                      type: string
+                      example: "Welcome to Spring Boot Hello World Application!"
+        /hello:
+          get:
+            summary: Hello endpoint
+            description: Returns a personalized greeting
+            parameters:
+              - name: name
+                in: query
+                description: Name to greet (optional)
+                required: false
+                schema:
+                  type: string
+                  default: "World"
+            responses:
+              '200':
+                description: Greeting message
+                content:
+                  text/plain:
+                    schema:
+                      type: string
+                      example: "Hello World!" 

@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: spring-boot-framework
+  description: Spring Boot framework and runtime dependencies
+  annotations:
+    backstage.io/techdocs-ref: https://spring.io/projects/spring-boot
+  tags:
+    - framework
+    - java
+    - spring
+spec:
+  type: library
+  owner: spring-team
+  system: spring-boot-hello-world
+  dependsOn: [] 

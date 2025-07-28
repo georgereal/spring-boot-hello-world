@@ -1,17 +1,44 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: hello-world
-  description: Test project to test backstage component registation
+  name: spring-boot-hello-world
+  description: A simple Spring Boot Hello World application with REST endpoints, Docker containerization, and CI/CD pipeline
   labels:
-    example.com/custom: custom_label_value
+    java: spring-boot
+    framework: spring
+    language: java
+    deployment: docker
+    ci-cd: github-actions
   annotations:
-    example.com/service-discovery: artistweb
-    github.com/project-slug: https://github.com/georgereal/spring-boot-hello-world
+    github.com/project-slug: georgereal/spring-boot-hello-world
+    github.com/repo-url: https://github.com/georgereal/spring-boot-hello-world
+    github.com/actions-workflow: ci-cd.yml
+    github.com/actions-workflow-docker: docker-deploy.yml
+    backstage.io/techdocs-ref: dir:.
+    github.com/ci-status: enabled
+    github.com/container-registry: ghcr.io/georgereal/spring-boot-hello-world
+    github.com/deployment-url: https://georgereal.github.io/spring-boot-hello-world
+    github.com/package-manager: maven
+    github.com/java-version: "17"
+    github.com/spring-boot-version: "3.2.0"
   tags:
     - java
+    - spring-boot
+    - rest-api
+    - docker
+    - github-actions
+    - maven
+    - microservice
 spec:
-  type: spring boot
-  lifecycle: development
-  owner: guest
+  type: service
+  lifecycle: production
+  owner: georgereal
   system: spring-boot-hello-world
+  dependsOn: []
+  providesApis:
+    - hello-world-api
+  consumesApis: []
+  subcomponentOf: []
+  dependsOnResources: []
+  providesResources: []
+  consumesResources: []
