@@ -21,6 +21,10 @@ metadata:
     github.com/package-manager: maven
     github.com/java-version: "17"
     github.com/spring-boot-version: "3.2.0"
+  links:
+    - url: https://dashboard.example.com
+      title: My Dashboard
+      icon: dashboard
   tags:
     - java
     - spring-boot
