@@ -74,4 +74,44 @@ src/
 - Spring Web starter for REST endpoints
 - Maven build system
 - Basic test setup
-- Configurable server port (default: 8080) 
+- Configurable server port (default: 8080)
+- Docker containerization
+- GitHub Actions CI/CD pipeline
+- Automated testing and deployment
+
+## CI/CD Pipeline
+
+This project includes GitHub Actions workflows for continuous integration and deployment:
+
+### Workflows
+
+1. **CI/CD Pipeline** (`.github/workflows/ci-cd.yml`)
+   - Builds and tests the application on every push and pull request
+   - Runs on Ubuntu with Java 17
+   - Caches Maven dependencies for faster builds
+   - Uploads build artifacts
+
+2. **Docker Build and Deploy** (`.github/workflows/docker-deploy.yml`)
+   - Builds Docker image and pushes to GitHub Container Registry
+   - Deploys to GitHub Pages
+   - Runs on main branch pushes and releases
+
+### Docker Support
+
+The application can be containerized using Docker:
+
+```bash
+# Build Docker image
+docker build -t spring-boot-hello-world .
+
+# Run with Docker
+docker run -p 8080:8080 spring-boot-hello-world
+
+# Run with Docker Compose
+docker-compose up -d
+```
+
+### GitHub Container Registry
+
+Docker images are automatically published to:
+`ghcr.io/georgereal/spring-boot-hello-world` 
