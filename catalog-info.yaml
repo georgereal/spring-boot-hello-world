@@ -38,11 +38,5 @@ spec:
   lifecycle: production
   owner: georgereal
   system: spring-boot-hello-world
-  dependsOn: []
   providesApis:
     - hello-world-api
-  consumesApis: []
-  subcomponentOf: []
-  dependsOnResources: []
-  providesResources: []
-  consumesResources: []
