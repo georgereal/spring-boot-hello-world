@@ -1,0 +1,88 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: spring-boot-simple-pipeline
+  annotations:
+    description: "Simple pipeline for Spring Boot Hello World application"
+spec:
+  description: |
+    A simplified pipeline that builds and tests the Spring Boot Hello World application
+    using basic Tekton tasks.
+  
+  params:
+    - name: git-url
+      type: string
+      description: "Git repository URL"
+      default: "https://github.com/georgereal/spring-boot-hello-world.git"
+    - name: git-revision
+      type: string
+      description: "Git revision to checkout"
+      default: "main"
+  
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for source code and build artifacts"
+  
+  tasks:
+    # Task 1: Clone the repository
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+        - name: subdirectory
+          value: ""
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    
+    # Task 2: Build with Maven
+    - name: maven-build
+      taskRef:
+        name: maven
+      runAfter: ["fetch-repository"]
+      params:
+        - name: GOALS
+          value: ["clean", "compile", "test", "package"]
+        - name: MAVEN_IMAGE
+          value: "maven:3.8.6-openjdk-17"
+        - name: ARGS
+          value: ["-DskipTests=false"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    
+    # Task 3: Build Docker image
+    - name: build-image
+      taskRef:
+        name: kaniko
+      runAfter: ["maven-build"]
+      params:
+        - name: IMAGE
+          value: "ghcr.io/georgereal/spring-boot-hello-world:latest"
+        - name: DOCKERFILE
+          value: "./Dockerfile"
+        - name: CONTEXT
+          value: "."
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    
+    # Task 4: Test the application
+    - name: test-application
+      taskRef:
+        name: curl
+      runAfter: ["build-image"]
+      params:
+        - name: url
+          value: "http://localhost:8080/hello"
+        - name: options
+          value: ["-f", "-w", "HTTP Status: %{http_code}\n", "--max-time", "30"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace

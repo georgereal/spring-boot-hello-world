@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: spring-boot-simple-run-$(date +%s)
+  annotations:
+    description: "Simple pipeline run for Spring Boot Hello World application"
+spec:
+  pipelineRef:
+    name: spring-boot-simple-pipeline
+  
+  params:
+    - name: git-url
+      value: "https://github.com/georgereal/spring-boot-hello-world.git"
+    - name: git-revision
+      value: "main"
+  
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+  
+  timeout: "30m"
