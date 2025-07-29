@@ -8,8 +8,8 @@ metadata:
     framework: spring
     language: java
     deployment: docker
-    ci-cd: github-actions
-    ci-cd: tekton
+    github-actions: enabled
+    tekton: enabled
   annotations:
     github.com/project-slug: georgereal/spring-boot-hello-world
     github.com/repo-url: https://github.com/georgereal/spring-boot-hello-world
