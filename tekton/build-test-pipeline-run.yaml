@@ -1,18 +1,16 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  name: spring-boot-simple-run-spring-boot-2.7
+  name: spring-boot-build-test-run
   annotations:
-    description: "Simple pipeline run for Spring Boot 2.7.18 Hello World application with Java 11"
+    description: "Pipeline run for Spring Boot build and test"
 spec:
   pipelineRef:
-    name: spring-boot-simple-pipeline
+    name: spring-boot-build-test-pipeline
   
   params:
     - name: git-url
       value: "https://github.com/georgereal/spring-boot-hello-world.git"
-    - name: image-name
-      value: "spring-boot-hello-world:latest"
   
   workspaces:
     - name: shared-workspace

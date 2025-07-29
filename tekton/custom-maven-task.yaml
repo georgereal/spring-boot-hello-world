@@ -1,0 +1,33 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: maven-simple
+  annotations:
+    description: "Simple Maven task without settings workspace requirement"
+spec:
+  description: |
+    A simplified Maven task for building Spring Boot applications
+    without requiring custom Maven settings.
+  
+  params:
+    - name: GOALS
+      type: array
+      description: "Maven goals to run"
+      default: ["package"]
+    - name: ARGS
+      type: array
+      description: "Additional Maven arguments"
+      default: []
+  
+  workspaces:
+    - name: source
+      description: "Source code workspace"
+  
+  steps:
+    - name: maven-build
+      image: maven:3.8.1-openjdk-11
+      workingDir: $(workspaces.source.path)
+      command: ["/usr/bin/mvn"]
+      args:
+        - $(params.GOALS)
+        - $(params.ARGS)

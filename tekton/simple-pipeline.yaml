@@ -44,7 +44,7 @@ spec:
     # Task 2: Build with Maven
     - name: maven-build
       taskRef:
-        name: maven
+        name: maven-simple
       runAfter: ["fetch-repository"]
       params:
         - name: GOALS

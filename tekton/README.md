@@ -1,188 +1,110 @@
-# Tekton Pipelines for Spring Boot Hello World
+# Tekton Pipeline for Spring Boot Hello World
 
-This directory contains Tekton pipeline definitions for building, testing, and deploying the Spring Boot Hello World application.
+This directory contains Tekton pipeline configurations for building and testing the Spring Boot Hello World application.
 
 ## Pipeline Overview
 
-### 1. Full Pipeline (`pipeline.yaml`)
-A comprehensive pipeline that includes:
-- Git repository cloning
-- Maven build and testing
-- Security scanning with Trivy
-- Docker image building with Kaniko
-- Image pushing to GitHub Container Registry
-- Kubernetes deployment
-- Integration testing
+### spring-boot-build-test-pipeline
+A simplified pipeline that builds and tests the Spring Boot application without Docker build/push steps.
 
-### 2. Simple Pipeline (`simple-pipeline.yaml`)
-A simplified pipeline for basic CI/CD:
-- Git repository cloning
-- Maven build and testing
-- Docker image building
-- Basic application testing
+**Tasks:**
+1. **fetch-repository**: Clones the GitHub repository
+2. **maven-build**: Builds the Spring Boot application using Maven
+3. **test-application**: Tests the application endpoints (currently disabled due to localhost access)
 
-## Prerequisites
+## Files
 
-1. **Tekton Installation**: Ensure Tekton is installed in your Kubernetes cluster
-2. **Required Tasks**: Install the following Tekton tasks:
-   - `git-clone`
-   - `maven`
-   - `kaniko`
-   - `kubectl-apply`
-   - `curl`
+- `pipeline.yaml` - Comprehensive pipeline with Docker build/push
+- `simple-pipeline.yaml` - Simplified pipeline with Docker build
+- `build-test-pipeline.yaml` - Basic build and test pipeline (recommended)
+- `pipeline-run.yaml` - Pipeline run for the comprehensive pipeline
+- `simple-pipeline-run.yaml` - Pipeline run for the simple pipeline
+- `build-test-pipeline-run.yaml` - Pipeline run for the build-test pipeline
+- `custom-maven-task.yaml` - Custom Maven task for Java 11 compatibility
 
-## Installation
+## Backstage Integration
 
-### Install Required Tasks
+The pipeline is integrated with Backstage through the following catalog entities:
 
-```bash
-# Install git-clone task
-kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.9/git-clone.yaml
+### Main Component (catalog-info.yaml)
+- Updated with Tekton pipeline annotations
+- Includes links to Tekton Dashboard
+- Shows pipeline status and information
 
-# Install maven task
-kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
-
-# Install kaniko task
-kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/kaniko/0.6/kaniko.yaml
-
-# Install kubectl-apply task
-kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/kubectl-apply/0.2/kubectl-apply.yaml
-
-# Install curl task
-kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/curl/0.2/curl.yaml
-```
-
-### Create Namespace and Resources
-
-```bash
-# Create namespace
-kubectl apply -f k8s/namespace.yaml
-
-# Create GitHub Container Registry secret (if needed)
-kubectl create secret docker-registry ghcr-secret \
-  --docker-server=ghcr.io \
-  --docker-username=YOUR_GITHUB_USERNAME \
-  --docker-password=YOUR_GITHUB_TOKEN \
-  --namespace=spring-boot-hello-world
-```
+### Tekton Component (tekton-catalog-info.yaml)
+- Dedicated Tekton pipeline entity
+- Provides detailed pipeline information
+- Links to pipeline runs and dashboard
 
 ## Usage
 
-### Run the Simple Pipeline
+### Running the Pipeline
 
 ```bash
+# Apply the custom Maven task
+kubectl apply -f tekton/custom-maven-task.yaml
+
 # Apply the pipeline
-kubectl apply -f tekton/simple-pipeline.yaml
+kubectl apply -f tekton/build-test-pipeline.yaml
 
 # Run the pipeline
-kubectl apply -f tekton/simple-pipeline-run.yaml
+kubectl apply -f tekton/build-test-pipeline-run.yaml
 ```
 
-### Run the Full Pipeline
+### Monitoring
 
 ```bash
-# Apply the pipeline
-kubectl apply -f tekton/pipeline.yaml
-
-# Run the pipeline
-kubectl apply -f tekton/pipeline-run.yaml
-```
-
-## Monitoring
-
-### Check Pipeline Status
-
-```bash
-# List pipeline runs
+# Check pipeline run status
 kubectl get pipelineruns
 
-# Get detailed status
-kubectl describe pipelinerun <pipeline-run-name>
-
-# View logs
-kubectl logs -f pipelinerun/<pipeline-run-name>
-```
-
-### Check Task Status
-
-```bash
-# List task runs
+# Check task run status
 kubectl get taskruns
 
-# Get task run details
-kubectl describe taskrun <task-run-name>
+# View pipeline logs
+kubectl logs <pipeline-run-pod-name>
 ```
 
-## Pipeline Stages
+### Backstage UI
 
-### Simple Pipeline Stages:
-1. **fetch-repository**: Clone the Git repository
-2. **maven-build**: Build and test with Maven
-3. **build-image**: Create Docker image with Kaniko
-4. **test-application**: Test the application endpoints
-
-### Full Pipeline Stages:
-1. **fetch-repository**: Clone the Git repository
-2. **maven-build**: Build and test with Maven
-3. **security-scan**: Run Trivy security scan
-4. **build-image**: Create Docker image
-5. **push-image**: Push to GitHub Container Registry
-6. **deploy-to-k8s**: Deploy to Kubernetes
-7. **integration-tests**: Run integration tests
+1. Navigate to the Spring Boot Hello World component in Backstage
+2. View the Tekton tab to see pipeline information
+3. Access pipeline runs and logs
+4. Use the provided links to access Tekton Dashboard
 
 ## Configuration
 
-### Environment Variables
+### Pipeline Parameters
+- `git-url`: GitHub repository URL (default: https://github.com/georgereal/spring-boot-hello-world.git)
 
-The pipelines use the following environment variables:
-- `GITHUB_TOKEN`: GitHub personal access token for registry access
-- `GITHUB_USERNAME`: GitHub username for registry access
+### Workspaces
+- `shared-workspace`: Persistent volume claim for sharing data between tasks
 
-### Customization
-
-You can customize the pipelines by modifying:
-- **Git repository URL**: Change `git-url` parameter
-- **Docker image name**: Modify `image-name` parameter
-- **Maven goals**: Adjust the `GOALS` parameter in maven-build task
-- **Kubernetes namespace**: Update namespace references
+### Maven Configuration
+- Java version: 11
+- Spring Boot version: 2.7.18
+- Maven goals: clean, package
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Task Not Found**: Ensure all required tasks are installed
-2. **Permission Denied**: Check service account permissions
-3. **Image Push Failed**: Verify registry credentials
-4. **Build Timeout**: Increase timeout values for large builds
+1. **Maven Build Fails**: Ensure the custom Maven task is applied
+2. **Image Pull Errors**: Check if the Maven image exists locally
+3. **Pipeline Validation**: Verify all required tasks are available in the cluster
 
-### Debug Commands
+### Logs
 
 ```bash
-# Check Tekton installation
-kubectl get pods -n tekton-pipelines
+# Get pipeline run logs
+kubectl logs <pipeline-run-name>-<task-name>-pod
 
-# Verify tasks are available
-kubectl get tasks
-
-# Check pipeline status
-kubectl get pipelineruns -o wide
-
-# View detailed logs
-kubectl logs -f deployment/tekton-pipelines-controller -n tekton-pipelines
+# Describe pipeline run for more details
+kubectl describe pipelinerun <pipeline-run-name>
 ```
 
-## Integration with Backstage
+## Next Steps
 
-The Tekton pipelines integrate with Backstage through:
-- Pipeline status monitoring
-- Build artifact tracking
-- Deployment status updates
-- Integration with GitHub Actions workflows
-
-## Security Considerations
-
-- Use non-root containers
-- Implement proper RBAC
-- Secure registry credentials
-- Enable security scanning
-- Use read-only file systems where possible
+1. Configure Docker registry credentials for image building
+2. Add more comprehensive testing tasks
+3. Implement deployment tasks for Kubernetes
+4. Set up webhook triggers for automatic pipeline execution
