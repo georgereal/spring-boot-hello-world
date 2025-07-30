@@ -12,6 +12,7 @@ metadata:
     tekton: enabled
   annotations:
     backstage.io/kubernetes-id: spring-boot-hello-world
+    tekton.dev/cicd : "true" 
     github.com/project-slug: georgereal/spring-boot-hello-world
     github.com/repo-url: https://github.com/georgereal/spring-boot-hello-world
     github.com/actions-workflow: ci-cd.yml
