@@ -1,0 +1,43 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: spring-boot-hello-world-webhooks-api
+  description: webhooks API for spring-boot-hello-world
+  labels:
+    component: spring-boot-hello-world
+    language: java
+    framework: spring-boot
+  annotations:
+    github.com/project-slug: georgereal/spring-boot-hello-world
+    discovery.source: automated-scan
+    discovery.timestamp: '2025-08-08T16:48:31.723Z'
+spec:
+  type: openapi
+  lifecycle: production
+  owner: georgereal
+  system: spring-boot-hello-world
+  definition:
+    openapi: 3.0.0
+    info:
+      title: spring-boot-hello-world webhooks API
+      version: 1.0.0
+      description: Auto-discovered API endpoints for spring-boot-hello-world
+    servers:
+      - url: https://github.com/georgereal/spring-boot-hello-world/api
+        description: Component API server
+    paths:
+      /webhooks/github:
+        get:
+          summary: WEBHOOK /webhooks/github
+          description: Auto-discovered from webhooks.js
+          responses:
+            '200':
+              description: Successful response
+              content:
+                application/json:
+                  schema:
+                    type: object
+          tags:
+            - webhooks
+          x-discovery-source: webhook-scan
+          x-discovery-file: webhooks.js
