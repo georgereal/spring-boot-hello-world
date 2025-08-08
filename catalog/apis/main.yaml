@@ -1,0 +1,90 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: spring-boot-hello-world-main-api
+  description: main API for spring-boot-hello-world
+  labels:
+    component: spring-boot-hello-world
+    language: java
+    framework: spring-boot
+  annotations:
+    github.com/project-slug: georgereal/spring-boot-hello-world
+    discovery.source: automated-scan
+    discovery.timestamp: '2025-08-08T14:32:14.916Z'
+spec:
+  type: openapi
+  lifecycle: production
+  owner: georgereal
+  system: spring-boot-hello-world
+  definition:
+    openapi: 3.0.0
+    info:
+      title: spring-boot-hello-world main API
+      version: 1.0.0
+      description: Auto-discovered API endpoints for spring-boot-hello-world
+    servers:
+      - url: https://github.com/georgereal/spring-boot-hello-world/api
+        description: Component API server
+    paths:
+      /api/spring-boot-hello-world:
+        get:
+          summary: GET /api/spring-boot-hello-world
+          description: Auto-discovered from Controller.java
+          responses:
+            '200':
+              description: Successful response
+              content:
+                application/json:
+                  schema:
+                    type: object
+          tags:
+            - main
+          x-discovery-source: code-scan
+          x-discovery-file: Controller.java
+          x-discovery-framework: spring-boot
+        post:
+          summary: POST /api/spring-boot-hello-world
+          description: Auto-discovered from Controller.java
+          responses:
+            '200':
+              description: Successful response
+              content:
+                application/json:
+                  schema:
+                    type: object
+          tags:
+            - main
+          x-discovery-source: code-scan
+          x-discovery-file: Controller.java
+          x-discovery-framework: spring-boot
+      /api/spring-boot-hello-world/{id}:
+        put:
+          summary: PUT /api/spring-boot-hello-world/{id}
+          description: Auto-discovered from Controller.java
+          responses:
+            '200':
+              description: Successful response
+              content:
+                application/json:
+                  schema:
+                    type: object
+          tags:
+            - main
+          x-discovery-source: code-scan
+          x-discovery-file: Controller.java
+          x-discovery-framework: spring-boot
+        delete:
+          summary: DELETE /api/spring-boot-hello-world/{id}
+          description: Auto-discovered from Controller.java
+          responses:
+            '200':
+              description: Successful response
+              content:
+                application/json:
+                  schema:
+                    type: object
+          tags:
+            - main
+          x-discovery-source: code-scan
+          x-discovery-file: Controller.java
+          x-discovery-framework: spring-boot
