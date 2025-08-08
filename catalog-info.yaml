@@ -2,69 +2,20 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: spring-boot-hello-world
-  description: A simple Spring Boot Hello World application with REST endpoints, Docker containerization, and CI/CD pipeline
+  description: spring-boot component
   labels:
-    java: spring-boot
-    framework: spring
     language: java
-    deployment: docker
-    github-actions: enabled
-    tekton: enabled
+    framework: spring-boot
   annotations:
-    backstage.io/kubernetes-id: spring-boot-hello-world
-    tekton.dev/cicd : "true" 
     github.com/project-slug: georgereal/spring-boot-hello-world
-    github.com/repo-url: https://github.com/georgereal/spring-boot-hello-world
-    github.com/actions-workflow: ci-cd.yml
-    github.com/actions-workflow-docker: docker-deploy.yml
-    backstage.io/techdocs-ref: dir:.
-    github.com/ci-status: enabled
-    github.com/container-registry: ghcr.io/georgereal/spring-boot-hello-world
-    github.com/deployment-url: https://georgereal.github.io/spring-boot-hello-world
-    github.com/package-manager: maven
-    github.com/java-version: "11"
-    github.com/spring-boot-version: "2.7.18"
-    # Tekton Pipeline Annotations
-    tekton.dev/pipeline: spring-boot-build-test-pipeline
-    tekton.dev/pipeline-run: spring-boot-build-test-run
-    tekton.dev/namespace: default
-    tekton.dev/cluster-url: https://kubernetes.default.svc
-    tekton.dev/dashboard-url: http://localhost:9097
-    # Additional Tekton Pipeline Information
-    tekton.dev/pipeline-description: "Simple pipeline to build and test Spring Boot application"
-    tekton.dev/pipeline-tasks: "fetch-repository,maven-build,test-application"
-    tekton.dev/maven-goals: "clean,package"
-    tekton.dev/java-version: "11"
-    tekton.dev/spring-boot-version: "2.7.18"
-  links:
-    - url: https://dashboard.example.com
-      title: My Dashboard
-      icon: dashboard
-    - url: http://localhost:9097
-      title: Tekton Dashboard
-      icon: build
-    - url: https://github.com/georgereal/spring-boot-hello-world
-      title: GitHub Repository
-      icon: github
-    - url: https://georgereal.github.io/spring-boot-hello-world
-      title: GitHub Pages
-      icon: launch
-  tags:
-    - java
-    - spring-boot
-    - rest-api
-    - docker
-    - github-actions
-    - tekton
-    - maven
-    - microservice
-    - kubernetes
+    backstage.io/managed-by-location: url:https://github.com/georgereal/spring-boot-hello-world/blob/main/catalog-info.yaml
 spec:
   type: service
   lifecycle: production
   owner: georgereal
   system: spring-boot-hello-world
   providesApis:
-    - hello-world-api
-  dependsOn:
-    - resource:spring-boot-framework
+    - spring-boot-hello-world-health-api
+    - spring-boot-hello-world-info-api
+    - spring-boot-hello-world-main-api
+    - spring-boot-hello-world-webhooks-api
