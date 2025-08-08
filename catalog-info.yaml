@@ -12,7 +12,7 @@ metadata:
     tekton: enabled
   annotations:
     backstage.io/kubernetes-id: spring-boot-hello-world
-    tekton.dev/cicd : "true" 
+    tekton.dev/cicd: 'true'
     github.com/project-slug: georgereal/spring-boot-hello-world
     github.com/repo-url: https://github.com/georgereal/spring-boot-hello-world
     github.com/actions-workflow: ci-cd.yml
@@ -22,20 +22,18 @@ metadata:
     github.com/container-registry: ghcr.io/georgereal/spring-boot-hello-world
     github.com/deployment-url: https://georgereal.github.io/spring-boot-hello-world
     github.com/package-manager: maven
-    github.com/java-version: "11"
-    github.com/spring-boot-version: "2.7.18"
-    # Tekton Pipeline Annotations
+    github.com/java-version: '11'
+    github.com/spring-boot-version: 2.7.18
     tekton.dev/pipeline: spring-boot-build-test-pipeline
     tekton.dev/pipeline-run: spring-boot-build-test-run
     tekton.dev/namespace: default
     tekton.dev/cluster-url: https://kubernetes.default.svc
     tekton.dev/dashboard-url: http://localhost:9097
-    # Additional Tekton Pipeline Information
-    tekton.dev/pipeline-description: "Simple pipeline to build and test Spring Boot application"
-    tekton.dev/pipeline-tasks: "fetch-repository,maven-build,test-application"
-    tekton.dev/maven-goals: "clean,package"
-    tekton.dev/java-version: "11"
-    tekton.dev/spring-boot-version: "2.7.18"
+    tekton.dev/pipeline-description: Simple pipeline to build and test Spring Boot application
+    tekton.dev/pipeline-tasks: fetch-repository,maven-build,test-application
+    tekton.dev/maven-goals: clean,package
+    tekton.dev/java-version: '11'
+    tekton.dev/spring-boot-version: 2.7.18
   links:
     - url: https://dashboard.example.com
       title: My Dashboard
@@ -66,5 +64,9 @@ spec:
   system: spring-boot-hello-world
   providesApis:
     - hello-world-api
+    - spring-boot-hello-world-health-api
+    - spring-boot-hello-world-info-api
+    - spring-boot-hello-world-main-api
+    - spring-boot-hello-world-webhooks-api
   dependsOn:
     - resource:spring-boot-framework
