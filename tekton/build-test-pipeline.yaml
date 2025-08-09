@@ -1,0 +1,59 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: spring-boot-build-test-pipeline
+  annotations:
+    description: "Simple pipeline to build and test Spring Boot application"
+spec:
+  description: |
+    A simplified pipeline that builds and tests the Spring Boot Hello World application
+    without Docker build/push steps.
+  
+  params:
+    - name: git-url
+      type: string
+      description: "Git repository URL"
+      default: "https://github.com/georgereal/spring-boot-hello-world.git"
+  
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for all tasks"
+  
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: subdirectory
+          value: ""
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    
+    - name: maven-build
+      taskRef:
+        name: maven-simple
+      params:
+        - name: GOALS
+          value: ["clean", "package"]
+      runAfter: ["fetch-repository"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    
+    - name: test-application
+      taskRef:
+        name: curl
+      params:
+        - name: url
+          value: "http://localhost:8080/"
+        - name: options
+          value: ["-f", "-s", "-w", "%{http_code}"]
+      runAfter: ["maven-build"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace

@@ -1,0 +1,162 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: spring-boot-hello-world-pipeline
+  annotations:
+    description: "Pipeline for Spring Boot Hello World application"
+spec:
+  description: |
+    This pipeline builds, tests, and deploys the Spring Boot Hello World application.
+    It includes Maven build, testing, Docker image creation, and deployment stages.
+  
+  params:
+    - name: git-url
+      type: string
+      description: "Git repository URL"
+      default: "https://github.com/georgereal/spring-boot-hello-world.git"
+    - name: git-revision
+      type: string
+      description: "Git revision to checkout"
+      default: "main"
+    - name: image-name
+      type: string
+      description: "Docker image name"
+      default: "ghcr.io/georgereal/spring-boot-hello-world"
+    - name: image-tag
+      type: string
+      description: "Docker image tag"
+      default: "latest"
+    - name: registry-secret
+      type: string
+      description: "Docker registry secret name"
+      default: "ghcr-secret"
+  
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for source code and build artifacts"
+    - name: maven-settings
+      description: "Maven settings file"
+      optional: true
+    - name: docker-config
+      description: "Docker config for registry authentication"
+      optional: true
+  
+  tasks:
+    # Task 1: Clone the repository
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+        - name: subdirectory
+          value: ""
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    
+    # Task 2: Build and test with Maven
+    - name: maven-build
+      taskRef:
+        name: maven
+      runAfter: ["fetch-repository"]
+      params:
+        - name: GOALS
+          value: ["clean", "compile", "test", "package"]
+        - name: MAVEN_IMAGE
+          value: "maven:3.8.6-openjdk-17"
+        - name: ARGS
+          value: ["-DskipTests=false"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: maven-settings
+          workspace: maven-settings
+    
+    # Task 3: Run security scan
+    - name: security-scan
+      taskRef:
+        name: trivy-scanner
+      runAfter: ["maven-build"]
+      params:
+        - name: imageRef
+          value: "$(params.image-name):$(params.image-tag)"
+        - name: format
+          value: "sarif"
+        - name: output
+          value: "trivy-results.sarif"
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    
+    # Task 4: Build Docker image
+    - name: build-image
+      taskRef:
+        name: kaniko
+      runAfter: ["maven-build"]
+      params:
+        - name: IMAGE
+          value: "$(params.image-name):$(params.image-tag)"
+        - name: DOCKERFILE
+          value: "./Dockerfile"
+        - name: CONTEXT
+          value: "."
+        - name: EXTRA_ARGS
+          value: ["--insecure", "--skip-tls-verify"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: dockerconfig
+          workspace: docker-config
+    
+    # Task 5: Push Docker image
+    - name: push-image
+      taskRef:
+        name: kaniko
+      runAfter: ["build-image"]
+      params:
+        - name: IMAGE
+          value: "$(params.image-name):$(params.image-tag)"
+        - name: DOCKERFILE
+          value: "./Dockerfile"
+        - name: CONTEXT
+          value: "."
+        - name: EXTRA_ARGS
+          value: ["--insecure", "--skip-tls-verify", "--push"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: dockerconfig
+          workspace: docker-config
+    
+    # Task 6: Deploy to Kubernetes (optional)
+    - name: deploy-to-k8s
+      taskRef:
+        name: kubectl-apply
+      runAfter: ["push-image"]
+      params:
+        - name: manifest_dir
+          value: "k8s/"
+        - name: namespace
+          value: "spring-boot-hello-world"
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    
+    # Task 7: Run integration tests
+    - name: integration-tests
+      taskRef:
+        name: curl
+      runAfter: ["deploy-to-k8s"]
+      params:
+        - name: url
+          value: "http://spring-boot-hello-world-service:8080/hello"
+        - name: options
+          value: ["-f", "-w", "HTTP Status: %{http_code}\n"]
+      workspaces:
+        - name: source
+          workspace: shared-workspace

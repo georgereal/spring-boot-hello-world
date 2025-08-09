@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spring-boot-hello-world
+  labels:
+    name: spring-boot-hello-world
+    purpose: spring-boot-application
