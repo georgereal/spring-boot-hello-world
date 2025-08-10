@@ -6,17 +6,15 @@ WORKDIR /app
 
 # Copy Maven files
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
-
-# Download dependencies
-RUN ./mvnw dependency:go-offline -B
 
 # Copy source code
 COPY src ./src
 
+# Install Maven
+RUN apk add --no-cache maven
+
 # Build the application
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-alpine
