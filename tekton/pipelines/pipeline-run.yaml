@@ -1,0 +1,39 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: spring-boot-hello-world-run-$(date +%s)
+  annotations:
+    description: "Pipeline run for Spring Boot Hello World application"
+spec:
+  pipelineRef:
+    name: spring-boot-hello-world-pipeline
+  
+  params:
+    - name: git-url
+      value: "https://github.com/georgereal/spring-boot-hello-world.git"
+    - name: git-revision
+      value: "main"
+    - name: image-name
+      value: "ghcr.io/georgereal/spring-boot-hello-world"
+    - name: image-tag
+      value: "latest"
+    - name: registry-secret
+      value: "ghcr-secret"
+  
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    - name: maven-settings
+      configMap:
+        name: maven-settings
+    - name: docker-config
+      secret:
+        secretName: ghcr-secret
+  
+  timeout: "1h"
+  serviceAccountName: tekton-sa
