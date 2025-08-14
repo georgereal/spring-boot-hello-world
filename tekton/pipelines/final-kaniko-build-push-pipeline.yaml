@@ -1,0 +1,35 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: final-kaniko-build-push-pipeline
+  namespace: devsecops
+spec:
+  description: Final pipeline using Kaniko for building and OAuth2 HTTP for pushing to GHCR
+  params:
+  - name: git-url
+    description: Git repository URL
+    type: string
+  - name: image-url
+    description: Docker image URL to build and push
+    type: string
+  - name: github-pat
+    description: GitHub PAT for OAuth2 token exchange
+    type: string
+  tasks:
+  - name: build-and-push
+    params:
+    - name: git-url
+      value: $(params.git-url)
+    - name: image-url
+      value: $(params.image-url)
+    - name: github-pat
+      value: $(params.github-pat)
+    taskRef:
+      kind: Task
+      name: final-kaniko-build-push
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  workspaces:
+  - description: Shared workspace for all tasks
+    name: shared-workspace
