@@ -1,0 +1,159 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: webhook-integration-simple
+  annotations:
+    description: "Simple webhook integration task for pipeline notifications"
+spec:
+  description: |
+    A simple webhook integration task that sends basic notifications to external systems
+    
+  params:
+    - name: webhook-url
+      description: "Webhook URL"
+      type: string
+    - name: webhook-type
+      description: "Type of webhook (slack, teams, discord, generic)"
+      type: string
+      default: "generic"
+    - name: message-title
+      description: "Title of the notification message"
+      type: string
+    - name: message-body
+      description: "Body of the notification message"
+      type: string
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      type: string
+    - name: pipeline-name
+      description: "Name of the pipeline"
+      type: string
+    - name: status
+      description: "Status of the pipeline/step"
+      type: string
+    - name: duration
+      description: "Duration in seconds"
+      type: string
+      default: "0"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for accessing logs and data"
+
+  steps:
+    - name: prepare-webhook-data
+      image: alpine:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Preparing webhook data..."
+        
+        # Get current timestamp
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        
+        # Create simple payload based on webhook type
+        case "$(params.webhook-type)" in
+          "slack")
+            PAYLOAD=$(cat <<EOF
+        {
+          "text": "$(params.message-title)",
+          "attachments": [
+            {
+              "color": "$(if [ "$(params.status)" = "succeeded" ]; then echo "good"; else echo "danger"; fi)",
+              "title": "$(params.message-title)",
+              "text": "$(params.message-body)",
+              "fields": [
+                {
+                  "title": "Pipeline",
+                  "value": "$(params.pipeline-name)",
+                  "short": true
+                },
+                {
+                  "title": "Status",
+                  "value": "$(params.status)",
+                  "short": true
+                },
+                {
+                  "title": "Duration",
+                  "value": "$(params.duration)s",
+                  "short": true
+                },
+                {
+                  "title": "Pipeline Run",
+                  "value": "$(params.pipeline-run-name)",
+                  "short": true
+                }
+              ],
+              "footer": "DevSecOps Framework",
+              "ts": $(date +%s)
+            }
+          ]
+        }
+        EOF
+        )
+        ;;
+          *)
+            PAYLOAD=$(cat <<EOF
+        {
+          "timestamp": "$TIMESTAMP",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "status": "$(params.status)",
+          "duration_seconds": $(params.duration),
+          "message_title": "$(params.message-title)",
+          "message_body": "$(params.message-body)"
+        }
+        EOF
+        )
+        ;;
+        esac
+        
+        # Store the payload
+        echo "$PAYLOAD" > $(workspaces.shared-workspace.path)/webhook-payload.json
+        
+        echo "✅ Webhook payload prepared"
+
+    - name: send-webhook
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Sending webhook notification..."
+        
+        # Read payload
+        PAYLOAD=$(cat $(workspaces.shared-workspace.path)/webhook-payload.json)
+        
+        # Send webhook
+        if [ -n "$(params.webhook-url)" ]; then
+          echo "📤 Sending to: $(params.webhook-url)"
+          
+          RESPONSE=$(curl -X POST "$(params.webhook-url)" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            --max-time 30 \
+            --silent \
+            --show-error \
+            --write-out "HTTPSTATUS:%{http_code}" || echo "HTTPSTATUS:000")
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTPSTATUS:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed 's/HTTPSTATUS:[0-9]*$//')
+          
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Webhook sent successfully (HTTP $HTTP_STATUS)"
+            echo "success" > $(workspaces.shared-workspace.path)/webhook-status
+          else
+            echo "⚠️ Webhook failed (HTTP $HTTP_STATUS): $BODY"
+            echo "failure" > $(workspaces.shared-workspace.path)/webhook-status
+          fi
+        else
+          echo "⚠️ No webhook URL provided, skipping"
+          echo "skipped" > $(workspaces.shared-workspace.path)/webhook-status
+        fi
+
+  results:
+    - name: webhook-status
+      description: "Status of webhook delivery (success/failure/skipped)"
+    - name: webhook-payload-path
+      description: "Path to the webhook payload JSON file"

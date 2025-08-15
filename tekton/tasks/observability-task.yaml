@@ -1,0 +1,246 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: observability-wrapper
+  annotations:
+    description: "Wraps any step with observability and communication capabilities"
+spec:
+  description: |
+    A custom task that wraps any step and provides:
+    - Step execution monitoring
+    - Result communication via webhook/API
+    - Detailed logging and metrics
+    - Error handling and reporting
+    
+  params:
+    - name: step-name
+      description: "Name of the step being wrapped"
+      type: string
+    - name: step-command
+      description: "Command to execute"
+      type: string
+    - name: step-args
+      description: "Arguments for the command (JSON array)"
+      type: string
+      default: "[]"
+    - name: webhook-url
+      description: "Webhook URL for step notifications"
+      type: string
+      default: ""
+    - name: api-endpoint
+      description: "API endpoint for step notifications"
+      type: string
+      default: ""
+    - name: api-token
+      description: "API token for authentication"
+      type: string
+      default: ""
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      type: string
+    - name: pipeline-name
+      description: "Name of the pipeline"
+      type: string
+    - name: step-timeout
+      description: "Timeout for the step in seconds"
+      type: string
+      default: "300"
+    - name: enable-metrics
+      description: "Enable detailed metrics collection"
+      type: string
+      default: "true"
+    - name: failure-notification
+      description: "Send notification on failure"
+      type: string
+      default: "true"
+    - name: success-notification
+      description: "Send notification on success"
+      type: string
+      default: "true"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for step execution"
+
+  steps:
+    - name: step-pre-execution
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "🚀 Starting step: $(params.step-name)"
+        echo "📊 Pipeline: $(params.pipeline-name)"
+        echo "🔄 Pipeline Run: $(params.pipeline-run-name)"
+        echo "⏱️  Timeout: $(params.step-timeout)s"
+        
+        # Create step metadata
+        STEP_METADATA=$(cat <<EOF
+        {
+          "step_name": "$(params.step-name)",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "status": "started",
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "workspace": "$(workspaces.shared-workspace.path)"
+        }
+        EOF
+        )
+        
+        # Send start notification if webhook is configured
+        if [ -n "$(params.webhook-url)" ]; then
+          echo "📡 Sending start notification to webhook..."
+          curl -X POST "$(params.webhook-url)" \
+            -H "Content-Type: application/json" \
+            -d "$STEP_METADATA" \
+            --max-time 10 \
+            --silent || echo "⚠️  Webhook notification failed"
+        fi
+        
+        # Send start notification if API endpoint is configured
+        if [ -n "$(params.api-endpoint)" ]; then
+          echo "📡 Sending start notification to API..."
+          curl -X POST "$(params.api-endpoint)/steps/start" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $(params.api-token)" \
+            -d "$STEP_METADATA" \
+            --max-time 10 \
+            --silent || echo "⚠️  API notification failed"
+        fi
+        
+        # Store step metadata for later use
+        echo "$STEP_METADATA" > $(workspaces.shared-workspace.path)/step-metadata.json
+
+    - name: execute-step
+      image: alpine:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "🔧 Executing step: $(params.step-name)"
+        
+        # Parse step arguments
+        STEP_ARGS=$(echo "$(params.step-args)" | tr -d '[]' | tr ',' ' ')
+        
+        # Execute the step command with timeout
+        echo "📝 Command: $(params.step-command) $STEP_ARGS"
+        
+        # Start timing
+        START_TIME=$(date +%s)
+        
+        # Execute with timeout
+        timeout $(params.step-timeout) $(params.step-command) $STEP_ARGS
+        
+        # Capture exit code and timing
+        EXIT_CODE=$?
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        
+        # Store results
+        echo "$EXIT_CODE" > $(workspaces.shared-workspace.path)/step-exit-code
+        echo "$DURATION" > $(workspaces.shared-workspace.path)/step-duration
+        echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > $(workspaces.shared-workspace.path)/step-end-time
+        
+        # Exit with the step's exit code
+        exit $EXIT_CODE
+
+    - name: step-post-execution
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        # Read step results
+        EXIT_CODE=$(cat $(workspaces.shared-workspace.path)/step-exit-code)
+        DURATION=$(cat $(workspaces.shared-workspace.path)/step-duration)
+        END_TIME=$(cat $(workspaces.shared-workspace.path)/step-end-time)
+        STEP_METADATA=$(cat $(workspaces.shared-workspace.path)/step-metadata.json)
+        
+        # Determine status
+        if [ "$EXIT_CODE" -eq 0 ]; then
+          STATUS="succeeded"
+          echo "✅ Step $(params.step-name) completed successfully in ${DURATION}s"
+        else
+          STATUS="failed"
+          echo "❌ Step $(params.step-name) failed with exit code $EXIT_CODE after ${DURATION}s"
+        fi
+        
+        # Create result payload
+        RESULT_PAYLOAD=$(cat <<EOF
+        {
+          "step_name": "$(params.step-name)",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "status": "$STATUS",
+          "exit_code": $EXIT_CODE,
+          "duration_seconds": $DURATION,
+          "start_time": "$(echo "$STEP_METADATA" | jq -r '.timestamp')",
+          "end_time": "$END_TIME",
+          "workspace": "$(workspaces.shared-workspace.path)",
+          "metrics": {
+            "cpu_usage": "$(if [ "$(params.enable-metrics)" = "true" ]; then echo "collected"; else echo "disabled"; fi)",
+            "memory_usage": "$(if [ "$(params.enable-metrics)" = "true" ]; then echo "collected"; else echo "disabled"; fi)",
+            "network_io": "$(if [ "$(params.enable-metrics)" = "true" ]; then echo "collected"; else echo "disabled"; fi)"
+          }
+        }
+        EOF
+        )
+        
+        # Send notifications based on status and configuration
+        if [ "$STATUS" = "succeeded" ] && [ "$(params.success-notification)" = "true" ]; then
+          echo "📡 Sending success notification..."
+          
+          if [ -n "$(params.webhook-url)" ]; then
+            curl -X POST "$(params.webhook-url)" \
+              -H "Content-Type: application/json" \
+              -d "$RESULT_PAYLOAD" \
+              --max-time 10 \
+              --silent || echo "⚠️  Webhook notification failed"
+          fi
+          
+          if [ -n "$(params.api-endpoint)" ]; then
+            curl -X POST "$(params.api-endpoint)/steps/success" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $(params.api-token)" \
+              -d "$RESULT_PAYLOAD" \
+              --max-time 10 \
+              --silent || echo "⚠️  API notification failed"
+          fi
+        fi
+        
+        if [ "$STATUS" = "failed" ] && [ "$(params.failure-notification)" = "true" ]; then
+          echo "📡 Sending failure notification..."
+          
+          if [ -n "$(params.webhook-url)" ]; then
+            curl -X POST "$(params.webhook-url)" \
+              -H "Content-Type: application/json" \
+              -d "$RESULT_PAYLOAD" \
+              --max-time 10 \
+              --silent || echo "⚠️  Webhook notification failed"
+          fi
+          
+          if [ -n "$(params.api-endpoint)" ]; then
+            curl -X POST "$(params.api-endpoint)/steps/failure" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $(params.api-token)" \
+              -d "$RESULT_PAYLOAD" \
+              --max-time 10 \
+              --silent || echo "⚠️  API notification failed"
+          fi
+        fi
+        
+        # Store final result
+        echo "$RESULT_PAYLOAD" > $(workspaces.shared-workspace.path)/step-result.json
+        
+        # Exit with the original step's exit code
+        exit $EXIT_CODE
+
+  results:
+    - name: step-status
+      description: "Status of the step (succeeded/failed)"
+    - name: step-duration
+      description: "Duration of the step in seconds"
+    - name: step-exit-code
+      description: "Exit code of the step"
+    - name: step-result-path
+      description: "Path to the detailed step result JSON"

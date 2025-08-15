@@ -1,0 +1,248 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: api-integration
+  annotations:
+    description: "Communicates with application API endpoints for step and pipeline monitoring"
+spec:
+  description: |
+    An API integration task that can:
+    - Send step execution data to your application API
+    - Update pipeline run status in real-time
+    - Provide detailed metrics and logs
+    - Handle authentication and error recovery
+    - Support custom API endpoints and data formats
+    
+  params:
+    - name: api-base-url
+      description: "Base URL of the application API"
+      type: string
+    - name: api-token
+      description: "API token for authentication"
+      type: string
+    - name: event-type
+      description: "Type of event (step-start, step-complete, pipeline-start, pipeline-complete)"
+      type: string
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      type: string
+    - name: pipeline-name
+      description: "Name of the pipeline"
+      type: string
+    - name: step-name
+      description: "Name of the step (for step events)"
+      type: string
+      default: ""
+    - name: step-status
+      description: "Status of the step (started, succeeded, failed)"
+      type: string
+      default: ""
+    - name: step-duration
+      description: "Duration of the step in seconds"
+      type: string
+      default: "0"
+    - name: step-exit-code
+      description: "Exit code of the step"
+      type: string
+      default: "0"
+    - name: include-logs
+      description: "Include step/pipeline logs in API call"
+      type: string
+      default: "false"
+    - name: include-metrics
+      description: "Include performance metrics"
+      type: string
+      default: "true"
+    - name: retry-count
+      description: "Number of retries for failed API calls"
+      type: string
+      default: "3"
+    - name: retry-delay
+      description: "Delay between retries in seconds"
+      type: string
+      default: "5"
+    - name: custom-data
+      description: "Additional custom data (JSON object)"
+      type: string
+      default: "{}"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for accessing logs and data"
+
+  steps:
+    - name: prepare-api-data
+      image: alpine:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "🔌 Preparing API data for event: $(params.event-type)"
+        
+        # Get current timestamp
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        
+        # Prepare base payload
+        BASE_PAYLOAD=$(cat <<EOF
+        {
+          "event_type": "$(params.event-type)",
+          "timestamp": "$TIMESTAMP",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "source": "tekton-pipeline"
+        }
+        EOF
+        )
+        
+        # Add step information for step events
+        if [ "$(params.event-type)" = "step-start" ] || [ "$(params.event-type)" = "step-complete" ]; then
+          if [ -n "$(params.step-name)" ]; then
+            STEP_INFO=$(cat <<EOF
+            ,"step": {
+              "name": "$(params.step-name)",
+              "status": "$(params.step-status)",
+              "duration_seconds": $(params.step-duration),
+              "exit_code": $(params.step-exit-code)
+            }
+            EOF
+            )
+            BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$STEP_INFO"'}/')
+          fi
+        fi
+        
+        # Add metrics if enabled
+        if [ "$(params.include-metrics)" = "true" ]; then
+          METRICS_INFO=$(cat <<EOF
+          ,"metrics": {
+            "workspace_size": "$(du -sh $(workspaces.shared-workspace.path) 2>/dev/null | cut -f1 || echo 'unknown')",
+            "available_memory": "$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2 }' 2>/dev/null || echo 'unknown')",
+            "cpu_usage": "$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo 'unknown')"
+          }
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$METRICS_INFO"'}/')
+        fi
+        
+        # Add logs if enabled and available
+        if [ "$(params.include-logs)" = "true" ]; then
+          if [ -f "$(workspaces.shared-workspace.path)/logs.txt" ]; then
+            LOGS_CONTENT=$(cat "$(workspaces.shared-workspace.path)/logs.txt" | head -c 2000 | jq -R -s .)
+            LOGS_INFO=$(cat <<EOF
+            ,"logs_preview": $LOGS_CONTENT
+            EOF
+            )
+            BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$LOGS_INFO"'}/')
+          elif [ -f "$(workspaces.shared-workspace.path)/step-result.json" ]; then
+            STEP_RESULT=$(cat "$(workspaces.shared-workspace.path)/step-result.json")
+            STEP_RESULT_INFO=$(cat <<EOF
+            ,"step_result": $STEP_RESULT
+            EOF
+            )
+            BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$STEP_RESULT_INFO"'}/')
+          fi
+        fi
+        
+        # Add custom data if provided
+        if [ "$(params.custom-data)" != "{}" ]; then
+          CUSTOM_DATA_INFO=$(cat <<EOF
+          ,"custom_data": $(params.custom-data)
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$CUSTOM_DATA_INFO"'}/')
+        fi
+        
+        # Store the payload
+        echo "$BASE_PAYLOAD" > $(workspaces.shared-workspace.path)/api-payload.json
+        
+        echo "✅ API payload prepared"
+
+    - name: send-api-notification
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Sending API notification..."
+        
+        # Read payload
+        PAYLOAD=$(cat $(workspaces.shared-workspace.path)/api-payload.json)
+        
+        # Determine endpoint based on event type
+        case "$(params.event-type)" in
+          "step-start")
+            ENDPOINT="/api/tekton/steps/start"
+            ;;
+          "step-complete")
+            ENDPOINT="/api/tekton/steps/complete"
+            ;;
+          "pipeline-start")
+            ENDPOINT="/api/tekton/pipelines/start"
+            ;;
+          "pipeline-complete")
+            ENDPOINT="/api/tekton/pipelines/complete"
+            ;;
+          *)
+            ENDPOINT="/api/tekton/events"
+            ;;
+        esac
+        
+        FULL_URL="$(params.api-base-url)$ENDPOINT"
+        echo "📤 Sending to: $FULL_URL"
+        
+        # Prepare headers
+        HEADERS="-H 'Content-Type: application/json'"
+        if [ -n "$(params.api-token)" ]; then
+          HEADERS="$HEADERS -H 'Authorization: Bearer $(params.api-token)'"
+        fi
+        
+        # Function to send API call with retries
+        send_api_call() {
+          local url="$1"
+          local payload="$2"
+          local retries=$(params.retry-count)
+          local delay=$(params.retry-delay)
+          
+          for i in $(seq 1 $retries); do
+            echo "🔄 Attempt $i of $retries..."
+            
+            RESPONSE=$(curl -X POST "$url" $HEADERS -d "$payload" \
+              --max-time 30 \
+              --silent \
+              --show-error \
+              --write-out "HTTPSTATUS:%{http_code}" || echo "HTTPSTATUS:000")
+            
+            HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTPSTATUS:[0-9]*" | cut -d: -f2)
+            BODY=$(echo "$RESPONSE" | sed 's/HTTPSTATUS:[0-9]*$//')
+            
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "✅ API call successful (HTTP $HTTP_STATUS)"
+              echo "📄 Response: $BODY"
+              return 0
+            else
+              echo "⚠️  API call failed (HTTP $HTTP_STATUS): $BODY"
+              if [ $i -lt $retries ]; then
+                echo "⏳ Retrying in ${delay}s..."
+                sleep $delay
+              fi
+            fi
+          done
+          
+          echo "❌ Failed to send API notification after $retries attempts"
+          return 1
+        }
+        
+        # Send the API call
+        if send_api_call "$FULL_URL" "$PAYLOAD"; then
+          echo "✅ API notification sent successfully"
+          echo "success" > $(workspaces.shared-workspace.path)/api-status
+        else
+          echo "❌ API notification failed"
+          echo "failure" > $(workspaces.shared-workspace.path)/api-status
+          exit 1
+        fi
+
+  results:
+    - name: api-status
+      description: "Status of API call (success/failure)"
+    - name: api-payload-path
+      description: "Path to the API payload JSON file"

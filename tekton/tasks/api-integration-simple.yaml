@@ -1,0 +1,173 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: api-integration-simple
+  annotations:
+    description: "Simple API integration task for pipeline and step notifications"
+spec:
+  description: |
+    A simple API integration task that sends basic notifications to your application API
+    
+  params:
+    - name: api-base-url
+      description: "Base URL of the application API"
+      type: string
+    - name: api-token
+      description: "API token for authentication"
+      type: string
+      default: ""
+    - name: event-type
+      description: "Type of event (step-start, step-complete, pipeline-start, pipeline-complete)"
+      type: string
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      type: string
+    - name: pipeline-name
+      description: "Name of the pipeline"
+      type: string
+    - name: step-name
+      description: "Name of the step (for step events)"
+      type: string
+      default: ""
+    - name: step-status
+      description: "Status of the step (started, succeeded, failed)"
+      type: string
+      default: ""
+    - name: step-duration
+      description: "Duration of the step in seconds"
+      type: string
+      default: "0"
+    - name: step-exit-code
+      description: "Exit code of the step"
+      type: string
+      default: "0"
+    - name: include-metrics
+      description: "Include performance metrics"
+      type: string
+      default: "true"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for accessing logs and data"
+
+  steps:
+    - name: prepare-api-data
+      image: alpine:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "🔌 Preparing API data for event: $(params.event-type)"
+        
+        # Get current timestamp
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        
+        # Prepare base payload
+        BASE_PAYLOAD=$(cat <<EOF
+        {
+          "event_type": "$(params.event-type)",
+          "timestamp": "$TIMESTAMP",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "source": "tekton-pipeline"
+        }
+        EOF
+        )
+        
+        # Add step information for step events
+        if [ "$(params.event-type)" = "step-start" ] || [ "$(params.event-type)" = "step-complete" ]; then
+          if [ -n "$(params.step-name)" ]; then
+            STEP_INFO=$(cat <<EOF
+            ,"step": {
+              "name": "$(params.step-name)",
+              "status": "$(params.step-status)",
+              "duration_seconds": $(params.step-duration),
+              "exit_code": $(params.step-exit-code)
+            }
+            EOF
+            )
+            BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$STEP_INFO"'}/')
+          fi
+        fi
+        
+        # Add metrics if enabled
+        if [ "$(params.include-metrics)" = "true" ]; then
+          METRICS_INFO=$(cat <<EOF
+          ,"metrics": {
+            "workspace_size": "$(du -sh $(workspaces.shared-workspace.path) 2>/dev/null | cut -f1 || echo 'unknown')",
+            "available_memory": "$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2 }' 2>/dev/null || echo 'unknown')",
+            "cpu_usage": "$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo 'unknown')"
+          }
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$METRICS_INFO"'}/')
+        fi
+        
+        # Store the payload
+        echo "$BASE_PAYLOAD" > $(workspaces.shared-workspace.path)/api-payload.json
+        
+        echo "✅ API payload prepared"
+
+    - name: send-api-notification
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Sending API notification..."
+        
+        # Read payload
+        PAYLOAD=$(cat $(workspaces.shared-workspace.path)/api-payload.json)
+        
+        # Determine endpoint based on event type
+        case "$(params.event-type)" in
+          "step-start")
+            ENDPOINT="/api/tekton/steps/start"
+            ;;
+          "step-complete")
+            ENDPOINT="/api/tekton/steps/complete"
+            ;;
+          "pipeline-start")
+            ENDPOINT="/api/tekton/pipelines/start"
+            ;;
+          "pipeline-complete")
+            ENDPOINT="/api/tekton/pipelines/complete"
+            ;;
+          *)
+            ENDPOINT="/api/tekton/events"
+            ;;
+        esac
+        
+        FULL_URL="$(params.api-base-url)$ENDPOINT"
+        echo "📤 Sending to: $FULL_URL"
+        
+        # Prepare headers
+        HEADERS="-H 'Content-Type: application/json'"
+        if [ -n "$(params.api-token)" ]; then
+          HEADERS="$HEADERS -H 'Authorization: Bearer $(params.api-token)'"
+        fi
+        
+        # Send the API call
+        RESPONSE=$(curl -X POST "$FULL_URL" $HEADERS -d "$PAYLOAD" \
+          --max-time 30 \
+          --silent \
+          --show-error \
+          --write-out "HTTPSTATUS:%{http_code}" || echo "HTTPSTATUS:000")
+        
+        HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTPSTATUS:[0-9]*" | cut -d: -f2)
+        BODY=$(echo "$RESPONSE" | sed 's/HTTPSTATUS:[0-9]*$//')
+        
+        if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+          echo "✅ API call successful (HTTP $HTTP_STATUS)"
+          echo "📄 Response: $BODY"
+          echo "success" > $(workspaces.shared-workspace.path)/api-status
+        else
+          echo "⚠️ API call failed (HTTP $HTTP_STATUS): $BODY"
+          echo "failure" > $(workspaces.shared-workspace.path)/api-status
+        fi
+
+  results:
+    - name: api-status
+      description: "Status of API call (success/failure)"
+    - name: api-payload-path
+      description: "Path to the API payload JSON file"

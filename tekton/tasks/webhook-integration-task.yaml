@@ -1,0 +1,336 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: webhook-integration
+  annotations:
+    description: "Sends custom webhook notifications with detailed pipeline and step data"
+spec:
+  description: |
+    A flexible webhook integration task that can:
+    - Send custom notifications to external systems
+    - Include detailed pipeline and step metadata
+    - Support multiple webhook endpoints
+    - Handle authentication and retries
+    - Format data for different webhook providers (Slack, Teams, Discord, etc.)
+    
+  params:
+    - name: webhook-url
+      description: "Primary webhook URL"
+      type: string
+    - name: webhook-urls
+      description: "Additional webhook URLs (JSON array)"
+      type: string
+      default: "[]"
+    - name: webhook-type
+      description: "Type of webhook (slack, teams, discord, generic)"
+      type: string
+      default: "generic"
+    - name: message-title
+      description: "Title of the notification message"
+      type: string
+    - name: message-body
+      description: "Body of the notification message"
+      type: string
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      type: string
+    - name: pipeline-name
+      description: "Name of the pipeline"
+      type: string
+    - name: step-name
+      description: "Name of the step (optional)"
+      type: string
+      default: ""
+    - name: status
+      description: "Status of the pipeline/step"
+      type: string
+    - name: duration
+      description: "Duration in seconds"
+      type: string
+      default: "0"
+    - name: include-logs
+      description: "Include pipeline/step logs in notification"
+      type: string
+      default: "false"
+    - name: include-metrics
+      description: "Include performance metrics"
+      type: string
+      default: "true"
+    - name: retry-count
+      description: "Number of retries for failed webhook calls"
+      type: string
+      default: "3"
+    - name: retry-delay
+      description: "Delay between retries in seconds"
+      type: string
+      default: "5"
+    - name: auth-token
+      description: "Authentication token for webhook"
+      type: string
+      default: ""
+    - name: custom-headers
+      description: "Custom headers (JSON object)"
+      type: string
+      default: "{}"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for accessing logs and data"
+
+  steps:
+    - name: prepare-webhook-data
+      image: alpine:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Preparing webhook data..."
+        
+        # Get current timestamp
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        
+        # Prepare base payload
+        BASE_PAYLOAD=$(cat <<EOF
+        {
+          "timestamp": "$TIMESTAMP",
+          "pipeline_name": "$(params.pipeline-name)",
+          "pipeline_run_name": "$(params.pipeline-run-name)",
+          "status": "$(params.status)",
+          "duration_seconds": $(params.duration),
+          "message_title": "$(params.message-title)",
+          "message_body": "$(params.message-body)"
+        }
+        EOF
+        )
+        
+        # Add step information if provided
+        if [ -n "$(params.step-name)" ]; then
+          STEP_INFO=$(cat <<EOF
+          ,"step_name": "$(params.step-name)"
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$STEP_INFO"'}/')
+        fi
+        
+        # Add metrics if enabled
+        if [ "$(params.include-metrics)" = "true" ]; then
+          METRICS_INFO=$(cat <<EOF
+          ,"metrics": {
+            "cpu_usage": "available",
+            "memory_usage": "available",
+            "network_io": "available",
+            "workspace_size": "$(du -sh $(workspaces.shared-workspace.path) 2>/dev/null | cut -f1 || echo 'unknown')"
+          }
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$METRICS_INFO"'}/')
+        fi
+        
+        # Add logs if enabled and available
+        if [ "$(params.include-logs)" = "true" ] && [ -f "$(workspaces.shared-workspace.path)/logs.txt" ]; then
+          LOGS_CONTENT=$(cat "$(workspaces.shared-workspace.path)/logs.txt" | head -c 1000 | jq -R -s .)
+          LOGS_INFO=$(cat <<EOF
+          ,"logs_preview": $LOGS_CONTENT
+          EOF
+          )
+          BASE_PAYLOAD=$(echo "$BASE_PAYLOAD" | sed 's/}$/'"$LOGS_INFO"'}/')
+        fi
+        
+        # Format payload based on webhook type
+        case "$(params.webhook-type)" in
+          "slack")
+            SLACK_PAYLOAD=$(cat <<EOF
+            {
+              "text": "$(params.message-title)",
+              "attachments": [
+                {
+                  "color": "$(if [ "$(params.status)" = "succeeded" ]; then echo "good"; else echo "danger"; fi)",
+                  "title": "$(params.message-title)",
+                  "text": "$(params.message_body)",
+                  "fields": [
+                    {
+                      "title": "Pipeline",
+                      "value": "$(params.pipeline-name)",
+                      "short": true
+                    },
+                    {
+                      "title": "Status",
+                      "value": "$(params.status)",
+                      "short": true
+                    },
+                    {
+                      "title": "Duration",
+                      "value": "$(params.duration)s",
+                      "short": true
+                    },
+                    {
+                      "title": "Pipeline Run",
+                      "value": "$(params.pipeline-run-name)",
+                      "short": true
+                    }
+                  ],
+                  "footer": "DevSecOps Framework",
+                  "ts": $(date +%s)
+                }
+              ]
+            }
+            EOF
+            )
+            echo "$SLACK_PAYLOAD" > $(workspaces.shared-workspace.path)/webhook-payload.json
+            ;;
+          "teams")
+            TEAMS_PAYLOAD=$(cat <<EOF
+            {
+              "@type": "MessageCard",
+              "@context": "http://schema.org/extensions",
+              "themeColor": "$(if [ "$(params.status)" = "succeeded" ]; then echo "00FF00"; else echo "FF0000"; fi)",
+              "summary": "$(params.message-title)",
+              "sections": [
+                {
+                  "activityTitle": "$(params.message-title)",
+                  "activitySubtitle": "$TIMESTAMP",
+                  "text": "$(params.message_body)",
+                  "facts": [
+                    {
+                      "name": "Pipeline:",
+                      "value": "$(params.pipeline-name)"
+                    },
+                    {
+                      "name": "Status:",
+                      "value": "$(params.status)"
+                    },
+                    {
+                      "name": "Duration:",
+                      "value": "$(params.duration)s"
+                    },
+                    {
+                      "name": "Pipeline Run:",
+                      "value": "$(params.pipeline-run-name)"
+                    }
+                  ]
+                }
+              ]
+            }
+            EOF
+            )
+            echo "$TEAMS_PAYLOAD" > $(workspaces.shared-workspace.path)/webhook-payload.json
+            ;;
+          "discord")
+            DISCORD_PAYLOAD=$(cat <<EOF
+            {
+              "embeds": [
+                {
+                  "title": "$(params.message-title)",
+                  "description": "$(params.message_body)",
+                  "color": $(if [ "$(params.status)" = "succeeded" ]; then echo "3066993"; else echo "15158332"; fi),
+                  "fields": [
+                    {
+                      "name": "Pipeline",
+                      "value": "$(params.pipeline-name)",
+                      "inline": true
+                    },
+                    {
+                      "name": "Status",
+                      "value": "$(params.status)",
+                      "inline": true
+                    },
+                    {
+                      "name": "Duration",
+                      "value": "$(params.duration)s",
+                      "inline": true
+                    },
+                    {
+                      "name": "Pipeline Run",
+                      "value": "$(params.pipeline-run-name)",
+                      "inline": true
+                    }
+                  ],
+                  "timestamp": "$TIMESTAMP",
+                  "footer": {
+                    "text": "DevSecOps Framework"
+                  }
+                }
+              ]
+            }
+            EOF
+            )
+            echo "$DISCORD_PAYLOAD" > $(workspaces.shared-workspace.path)/webhook-payload.json
+            ;;
+          *)
+            # Generic JSON payload
+            echo "$BASE_PAYLOAD" > $(workspaces.shared-workspace.path)/webhook-payload.json
+            ;;
+        esac
+        
+        echo "✅ Webhook payload prepared"
+
+    - name: send-webhooks
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        echo "📡 Sending webhook notifications..."
+        
+        # Read payload
+        PAYLOAD=$(cat $(workspaces.shared-workspace.path)/webhook-payload.json)
+        
+        # Prepare headers
+        HEADERS="-H 'Content-Type: application/json'"
+        if [ -n "$(params.auth-token)" ]; then
+          HEADERS="$HEADERS -H 'Authorization: Bearer $(params.auth-token)'"
+        fi
+        
+        # Add custom headers
+        if [ "$(params.custom-headers)" != "{}" ]; then
+          echo "$(params.custom-headers)" | jq -r 'to_entries[] | "-H \"" + .key + ": " + .value + "\""' | while read header; do
+            HEADERS="$HEADERS $header"
+          done
+        fi
+        
+        # Function to send webhook with retries
+        send_webhook() {
+          local url="$1"
+          local retries=$(params.retry-count)
+          local delay=$(params.retry-delay)
+          
+          echo "📤 Sending to: $url"
+          
+          for i in $(seq 1 $retries); do
+            if curl -X POST "$url" $HEADERS -d "$PAYLOAD" --max-time 30 --silent --show-error; then
+              echo "✅ Webhook sent successfully to $url"
+              return 0
+            else
+              echo "⚠️  Attempt $i failed for $url"
+              if [ $i -lt $retries ]; then
+                echo "⏳ Retrying in ${delay}s..."
+                sleep $delay
+              fi
+            fi
+          done
+          
+          echo "❌ Failed to send webhook to $url after $retries attempts"
+          return 1
+        }
+        
+        # Send to primary webhook
+        if [ -n "$(params.webhook-url)" ]; then
+          send_webhook "$(params.webhook-url)"
+        fi
+        
+        # Send to additional webhooks
+        if [ "$(params.webhook-urls)" != "[]" ]; then
+          echo "$(params.webhook-urls)" | jq -r '.[]' | while read url; do
+            if [ -n "$url" ]; then
+              send_webhook "$url"
+            fi
+          done
+        fi
+        
+        echo "✅ Webhook notifications completed"
+
+  results:
+    - name: webhook-status
+      description: "Status of webhook delivery (success/failure)"
+    - name: webhook-payload-path
+      description: "Path to the webhook payload JSON file"
