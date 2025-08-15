@@ -1,0 +1,163 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: final-kaniko-build-push-simple-observable-fixed
+  annotations:
+    description: "Simple observable pipeline using existing kaniko-final-attempt task with monitoring"
+spec:
+  description: |
+    Simple pipeline using the existing kaniko-final-attempt task with integrated observability
+    and real-time monitoring capabilities
+    
+  params:
+    - name: git-url
+      description: "Git repository URL"
+      type: string
+    - name: image-url
+      description: "Docker image URL to build and push"
+      type: string
+    - name: api-base-url
+      description: "Base URL for API notifications"
+      type: string
+      default: "http://localhost:3001"
+    - name: api-token
+      description: "API token for authentication"
+      type: string
+      default: ""
+    - name: webhook-url
+      description: "Webhook URL for notifications"
+      type: string
+      default: ""
+    - name: enable-observability
+      description: "Enable observability features"
+      type: string
+      default: "true"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for all tasks"
+    - name: dockerconfig
+      description: "Docker credentials for pushing to GHCR"
+      optional: true
+
+  tasks:
+    - name: pipeline-start-notification
+      taskRef:
+        name: api-integration-simple
+      params:
+        - name: api-base-url
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: event-type
+          value: "pipeline-start"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: include-metrics
+          value: "true"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter: []
+
+    - name: build-and-push
+      taskRef:
+        name: kaniko-final-attempt
+      params:
+        - name: git-url
+          value: "$(params.git-url)"
+        - name: image-url
+          value: "$(params.image-url)"
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: dockerconfig
+          workspace: dockerconfig
+      runAfter:
+        - pipeline-start-notification
+
+    - name: step-monitoring
+      taskRef:
+        name: observability-wrapper-simple
+      params:
+        - name: step-name
+          value: "monitor-build-results"
+        - name: step-command
+          value: "bash"
+        - name: step-args
+          value: '["-c", "echo \"Build completed. Image: $(params.image-url)\"; echo \"Pipeline run: $(context.pipelineRun.name)\""]'
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: api-endpoint
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: enable-metrics
+          value: "$(params.enable-observability)"
+        - name: failure-notification
+          value: "true"
+        - name: success-notification
+          value: "true"
+        - name: step-timeout
+          value: "60"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - build-and-push
+
+    - name: pipeline-complete-notification
+      taskRef:
+        name: api-integration-simple
+      params:
+        - name: api-base-url
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: event-type
+          value: "pipeline-complete"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: include-metrics
+          value: "true"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - step-monitoring
+
+    - name: final-webhook-notification
+      taskRef:
+        name: webhook-integration-simple
+      params:
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: webhook-type
+          value: "slack"
+        - name: message-title
+          value: "Pipeline $(context.pipeline.name) completed"
+        - name: message-body
+          value: "Pipeline run $(context.pipelineRun.name) has completed successfully. Image: $(params.image-url)"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: status
+          value: "succeeded"
+        - name: duration
+          value: "0"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - pipeline-complete-notification
+
+

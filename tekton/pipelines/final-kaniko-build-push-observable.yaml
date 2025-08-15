@@ -1,0 +1,232 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: final-kaniko-build-push-observable
+  annotations:
+    description: "Observable pipeline using Kaniko for building and OAuth2 HTTP for pushing to GHCR with real-time monitoring"
+spec:
+  description: |
+    Enhanced pipeline using Kaniko for building and OAuth2 HTTP for pushing to GHCR
+    with integrated observability, step monitoring, and real-time communication
+    
+  params:
+    - name: git-url
+      description: "Git repository URL"
+      type: string
+    - name: image-url
+      description: "Docker image URL to build and push"
+      type: string
+    - name: github-pat
+      description: "GitHub PAT for OAuth2 token exchange"
+      type: string
+    - name: api-base-url
+      description: "Base URL for API notifications"
+      type: string
+      default: "http://localhost:3001"
+    - name: api-token
+      description: "API token for authentication"
+      type: string
+      default: ""
+    - name: webhook-url
+      description: "Webhook URL for notifications"
+      type: string
+      default: ""
+    - name: enable-observability
+      description: "Enable observability features"
+      type: string
+      default: "true"
+    - name: notification-level
+      description: "Notification level (all, errors-only, none)"
+      type: string
+      default: "all"
+
+  workspaces:
+    - name: shared-workspace
+      description: "Shared workspace for all tasks"
+    - name: dockerconfig
+      description: "Docker credentials for pushing to GHCR"
+      optional: true
+
+  tasks:
+    - name: pipeline-start-notification
+      taskRef:
+        name: api-integration
+      params:
+        - name: api-base-url
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: event-type
+          value: "pipeline-start"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: include-metrics
+          value: "true"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter: []
+
+    - name: git-clone-with-observability
+      taskRef:
+        name: observability-wrapper
+      params:
+        - name: step-name
+          value: "git-clone"
+        - name: step-command
+          value: "git"
+        - name: step-args
+          value: '["clone", "$(params.git-url)", "/workspace/source"]'
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: api-endpoint
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: enable-metrics
+          value: "$(params.enable-observability)"
+        - name: failure-notification
+          value: "$(if(params.notification-level == 'all' || params.notification-level == 'errors-only', 'true', 'false'))"
+        - name: success-notification
+          value: "$(if(params.notification-level == 'all', 'true', 'false'))"
+        - name: step-timeout
+          value: "300"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - pipeline-start-notification
+
+    - name: build-and-push-with-observability
+      taskRef:
+        name: observability-wrapper
+      params:
+        - name: step-name
+          value: "build-and-push"
+        - name: step-command
+          value: "kaniko"
+        - name: step-args
+          value: '["--dockerfile=Dockerfile", "--context=/workspace/source", "--destination=$(params.image-url)", "--digest-file=/workspace/source/image-digest"]'
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: api-endpoint
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: enable-metrics
+          value: "$(params.enable-observability)"
+        - name: failure-notification
+          value: "$(if(params.notification-level == 'all' || params.notification-level == 'errors-only', 'true', 'false'))"
+        - name: success-notification
+          value: "$(if(params.notification-level == 'all', 'true', 'false'))"
+        - name: step-timeout
+          value: "900"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - git-clone-with-observability
+
+    - name: write-url-with-observability
+      taskRef:
+        name: observability-wrapper
+      params:
+        - name: step-name
+          value: "write-url"
+        - name: step-command
+          value: "bash"
+        - name: step-args
+          value: '["-c", "image=\"$(params.image-url)\"; echo -n \"${image}\" > /workspace/source/image-url"]'
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: api-endpoint
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: enable-metrics
+          value: "$(params.enable-observability)"
+        - name: failure-notification
+          value: "$(if(params.notification-level == 'all' || params.notification-level == 'errors-only', 'true', 'false'))"
+        - name: success-notification
+          value: "$(if(params.notification-level == 'all', 'true', 'false'))"
+        - name: step-timeout
+          value: "60"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - build-and-push-with-observability
+
+    - name: pipeline-complete-notification
+      taskRef:
+        name: api-integration
+      params:
+        - name: api-base-url
+          value: "$(params.api-base-url)"
+        - name: api-token
+          value: "$(params.api-token)"
+        - name: event-type
+          value: "pipeline-complete"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: include-metrics
+          value: "true"
+        - name: include-logs
+          value: "true"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - write-url-with-observability
+
+    - name: final-webhook-notification
+      taskRef:
+        name: webhook-integration
+      params:
+        - name: webhook-url
+          value: "$(params.webhook-url)"
+        - name: webhook-type
+          value: "slack"
+        - name: message-title
+          value: "Pipeline $(context.pipeline.name) completed"
+        - name: message-body
+          value: "Pipeline run $(context.pipelineRun.name) has completed successfully. Image: $(params.image-url)"
+        - name: pipeline-run-name
+          value: "$(context.pipelineRun.name)"
+        - name: pipeline-name
+          value: "$(context.pipeline.name)"
+        - name: status
+          value: "succeeded"
+        - name: duration
+          value: "0"
+        - name: include-metrics
+          value: "true"
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      runAfter:
+        - pipeline-complete-notification
+
+  results:
+    - name: image-url
+      description: "URL of the built image"
+      value: "$(params.image-url)"
+    - name: pipeline-run-name
+      description: "Name of the pipeline run"
+      value: "$(context.pipelineRun.name)"
